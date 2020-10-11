@@ -3,6 +3,7 @@ import cv2
 import numpy as np
 import torch
 from torch.autograd import Function
+from torch import nn
 from torchvision import models
 
 class FeatureExtractor():
@@ -77,7 +78,7 @@ def show_cam_on_image(img, mask):
     heatmap = np.float32(heatmap) / 255
     cam = heatmap + np.float32(img)
     cam = cam / np.max(cam)
-    cv2.imwrite("cam.jpg", np.uint8(255 * cam))
+    cv2.imwrite(f"{args.output_path}/cam.jpg", np.uint8(255 * cam))
 
 
 class GradCam:
@@ -101,9 +102,13 @@ class GradCam:
             features, output = self.extractor(input)
 
         if index == None:
-            index = np.argmax(output.cpu().data.numpy())
+            if output.cpu().item() > 0:
+                index = 1
+            else:
+                index = 0
+            # index = np.argmax(output.cpu().data.numpy())
 
-        one_hot = np.zeros((1, output.size()[-1]), dtype=np.float32)
+        one_hot = np.zeros((1, output.size()[-1] + 1), dtype=np.float32)
         one_hot[0][index] = 1
         one_hot = torch.from_numpy(one_hot).requires_grad_(True)
         if self.cuda:
@@ -209,6 +214,8 @@ def get_args():
                         help='Use NVIDIA GPU acceleration')
     parser.add_argument('--image-path', type=str, default='./examples/both.png',
                         help='Input image path')
+    parser.add_argument('--output-path', type=str, default='./examples/both.png',
+                        help='Output image path')
     args = parser.parse_args()
     args.use_cuda = args.use_cuda and torch.cuda.is_available()
     if args.use_cuda:
@@ -231,7 +238,7 @@ def deprocess_image(img):
 if __name__ == '__main__':
     """ python grad_cam.py <path_to_image>
     1. Loads an image with opencv.
-    2. Preprocesses it for VGG19 and converts to a pytorch variable.
+    2. Preprocesses it for My mask detector model using resnet18 and converts to a pytorch variable.
     3. Makes a forward pass to find the category index with the highest score,
     and computes intermediate activations.
     Makes the visualization. """
@@ -241,9 +248,12 @@ if __name__ == '__main__':
     # Can work with any model, but it assumes that the model has a
     # feature method, and a classifier method,
     # as in the VGG models in torchvision.
-    model = models.resnet50(pretrained=True)
+    # model = models.resnet50(pretrained=True)
+    model = models.resnet18(pretrained=True)
+    model.fc = nn.Linear(model.fc.in_features, 1)
+    model.load_state_dict(torch.load(r"C:\Users\matana\Desktop\All\OpenU\data science\to git\models\resnet\model_new_2", map_location=torch.device('cpu')))
     grad_cam = GradCam(model=model, feature_module=model.layer4, \
-                       target_layer_names=["2"], use_cuda=args.use_cuda)
+                       target_layer_names=["1"], use_cuda=args.use_cuda)
 
     img = cv2.imread(args.image_path, 1)
     img = np.float32(cv2.resize(img, (224, 224))) / 255
@@ -264,5 +274,5 @@ if __name__ == '__main__':
     cam_gb = deprocess_image(cam_mask*gb)
     gb = deprocess_image(gb)
 
-    cv2.imwrite('gb.jpg', gb)
-    cv2.imwrite('cam_gb.jpg', cam_gb)
+    cv2.imwrite(f'{args.output_path}/gb.jpg', gb)
+    cv2.imwrite(f'{args.output_path}/cam_gb.jpg', cam_gb)
